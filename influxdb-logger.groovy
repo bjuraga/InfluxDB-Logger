@@ -87,6 +87,7 @@
  *   2025-03-13 Denny Page      When debugging, log individual fields of device and variable events
  *   2025-04-30 Denny Page      Clarify InfluxDB Version as referring to Write Protocol Version
  *   2025-08-30 Denny Page      Address softpoll issue with boolean system variables
+ *   2025-10-25 Boris Juraga    Allow skipping (loosing) one event in case the event has bad data types and causes error 422
  *****************************************************************************************************************/
 
 definition(
@@ -195,6 +196,12 @@ def setupMain() {
                 options: logOptions,
                 defaultValue: "${logWarn}",
                 required: false
+            )
+            input(
+                "ignoreSingleEvent422StatusCode",
+                "bool",
+                title: "If set to true and the batch size is set to 1 event, then failures to write the event to InfluxDB with status code 422 (Bad schema) will skip sending the event and continue onto the rest.",
+                defaultValue: false
             )
         }
 
@@ -1151,6 +1158,16 @@ void handleInfluxResponse(hubResponse, closure) {
         logger("Post of ${postCount} events failed - elapsed time ${elapsed} seconds - Status: ${hubResponse.status}, Error: ${hubResponse.errorMessage}, Headers: ${hubResponse.headers}, Data: ${data}", logWarn)
         if (postCount == 1) {
             logger("Failed record was: ${state.loggerQueue[0]}", logError)
+            
+            if(hubResponse.status == 422 && settings.ignoreSingleEvent422StatusCode){
+                logger("Ignoring single items is set to true, removing this event from the state", logWarn)
+
+                // Remove the post from the queue
+                state.loggerQueue = state.loggerQueue.drop(postCount)
+
+                // Skip any further handling
+                return
+            }
         }
 
         loggerQueueSize = state.loggerQueue.size()
